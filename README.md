@@ -140,10 +140,4 @@ This application uses OpenAI and Mistral APIs. Store your API keys in a local `.
 
 ---
 
-## License
-
-This project is licensed under the [MIT License](LICENSE).
-
----
-
 **Happy DataFlowing!**
