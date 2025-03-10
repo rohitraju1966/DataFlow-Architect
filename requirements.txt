@@ -6,3 +6,4 @@ WeasyPrint
 python-dotenv
 openai
 mistralai
+tabulate
