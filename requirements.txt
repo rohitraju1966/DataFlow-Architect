@@ -1,0 +1,8 @@
+streamlit
+requests
+pandas
+markdown
+WeasyPrint
+python-dotenv
+openai
+mistralai
