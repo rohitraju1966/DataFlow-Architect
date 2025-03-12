@@ -84,7 +84,7 @@ st.markdown("<h1 class='main-title'>⚡ DataFlow Architect</h1>", unsafe_allow_h
 
 # ------------------ INTRODUCTION ------------------
 st.markdown("""
-<p style='text-align: center; font-size: 1.2rem; color: #ffffff;'>
+<p style='text-align: center; font-size: 1.2rem;'>
 Welcome to ⚡ DataFlow Architect! This application leverages AI to help you generate automated data science workflows.
 You can either generate a comprehensive 📄 report of your dataset or receive 📜 step-by-step guidance for specific workflow sections.
 Simply upload your dataset or document, choose your desired mode, and follow the prompts.
