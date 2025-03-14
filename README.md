@@ -1,6 +1,6 @@
 # DataFlow Architect
 
-**DataFlow Architect** is a Streamlit application that leverages AI to automatically generate comprehensive data science workflows and reports. Upload your dataset or document, choose your desired mode, and let the AI guide you through creating a full report or step-by-step workflow.
+**DataFlow Architect** is a Streamlit application that leverages AI to automatically generate comprehensive data science workflows and reports. Upload your dataset or document, choose your desired mode, and let the AI guide you through creating a full report or step-by-step workflow. View the app here: https://dataflow-architect-chpwn2xcy4yyarx8azsjct.streamlit.app/
 
 
 ---
