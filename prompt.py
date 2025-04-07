@@ -178,37 +178,90 @@ class ReportGenerator:
         )
         return response.choices[0].message.content
 
-    def generate_report_with_evaluation(self, df: pd.DataFrame, file_name: str = "automated_report.md") -> str:
+    def generate_report_with_evaluation(self, df: pd.DataFrame, file_name: str = "automated_report.md", ratings: dict = None, automated_mode: bool = False) -> str:
         """
-        Generates an AI-written full report (for Report mode) that includes:
-        1. A static overview listing the workflow steps in numbered order.
-        2. Detailed explanations for each step (generated in order).
-        3. Evaluations for each step.
-        4. A concluding section.
-        The final report is assembled in proper Markdown format and saved to a file.
+        Generates a full AI-written report that includes:
+          - A static workflow overview (list of steps)
+          - Detailed explanations for each step
+          - Evaluations for each step
+          - A concluding section
+        In full report mode, if a ratings dictionary is provided, it is used for all steps.
+        If automated_mode is True, it will automatically use all sections without prompting.
+        Otherwise, the user is prompted for individual ratings.
+        The final report is saved as a Markdown file.
         """
-        # Use all steps in full report mode.
-        selected_steps = self.workflow_steps
+        if ratings is None:
+            ratings_dict = {}
+            print("\nPlease rate your knowledge for the following workflow steps (1 = rookie, 5 = expert):")
+            for step in self.workflow_steps:
+                while True:
+                    try:
+                        rating = int(input(f"Rating for '{step}': "))
+                        if rating < 1 or rating > 5:
+                            raise ValueError
+                        ratings_dict[step] = rating
+                        break
+                    except ValueError:
+                        print("Invalid input. Please enter an integer between 1 and 5.")
+        else:
+            ratings_dict = ratings
         
-        # 1) Generate a static workflow overview in order.
-        overview = "\n".join(f"{i+1}. {step}" for i, step in enumerate(selected_steps))
+        # Generate a workflow overview.
+        overview_prompt = (
+            f"Given a dataset with columns: {df.columns.tolist()}, "
+            "list the key steps involved in the data science workflow without explanations."
+        )
+        overview_response = self.client.chat.completions.create(
+            messages=[self.SYSTEM_PROMPT, {"role": "user", "content": overview_prompt}],
+            model='gpt-4o-mini'
+        )
+        overview = overview_response.choices[0].message.content
         print("Workflow Overview:")
         print(overview)
         
-        # 2) Generate detailed outputs for each step in order.
+        # Determine which sections to generate
+        if automated_mode:
+            # For automated mode (typically used with Streamlit), use all sections
+            selected_steps = self.workflow_steps
+        else:
+            # Ask the user which section to generate.
+            print("\nChoose the section from which to generate the detailed report.")
+            print("Type 'all' to include every section, or type the exact name of one of the workflow steps:")
+            for step in self.workflow_steps:
+                print(f"- {step}")
+            
+            while True:
+                chosen_section = input("Enter your choice: ").strip()
+                if chosen_section.lower() == "all":
+                    selected_steps = self.workflow_steps
+                    break
+                elif chosen_section in self.workflow_steps:
+                    selected_steps = [chosen_section]
+                    break
+                else:
+                    print("Invalid selection. Please enter a valid section name (exactly as shown) or 'all'.")
+        
+        # Generate detailed outputs for the selected steps.
         detailed_outputs = {}
         completed_tasks = ""
         for step in selected_steps:
-            detail_level = "moderately detailed"  # default detail level
+            # Determine detail level based on the provided rating.
+            rating = ratings_dict[step]
+            if rating <= 2:
+                detail_level = "extremely detailed, comprehensive, beginner-friendly, including reasoning and methods"
+            elif rating <= 4:
+                detail_level = "moderately detailed"
+            else:
+                detail_level = "concise"
+            
             step_prompt = (
                 f"Dataset columns: {df.columns.tolist()}.\n"
                 f"Tasks previously covered: {completed_tasks if completed_tasks else 'None'}.\n\n"
-                f"Provide a {detail_level} explanation for the '{step}' step. "
-                "Include the following:\n"
-                "- Specific tasks to be performed at this step (tailored to this dataset).\n"
+                f"Provide a {detail_level} explanation specifically for the '{step}' step, clearly detailing:\n"
+                "- What needs to be done at this step (tailored to this dataset).\n"
                 "- The reasoning behind each task.\n"
                 "- Clear, explicit instructions on how to perform these tasks.\n"
-                "Ensure the explanation is coherent and follows the order of the workflow."
+                "Ensure the explanation is coherent and follows the workflow order."
             )
             
             step_response = self.client.chat.completions.create(
@@ -220,7 +273,7 @@ class ReportGenerator:
             completed_tasks += f"{step}: {step_output}\n\n"
             print(f"Details for '{step}' generated.")
         
-        # 3) Execute all helper functions for each step concurrently (if needed).
+        # Build a list of functions to run only for the selected steps.
         selected_functions = []
         for step in selected_steps:
             selected_functions.extend(self.step_to_functions[step])
@@ -228,36 +281,49 @@ class ReportGenerator:
             results = list(executor.map(lambda func: func(df), selected_functions))
         combined_report = "\n\n".join(results)
         
-        # 4) Build an evaluation report that shows each step's evaluation.
         evaluation_report = "\n\n".join(
             [f"**{step} Evaluation:**\n{detail}" for step, detail in detailed_outputs.items()]
         )
         
-        # 5) Generate a concluding section.
-        final_section = self.conclusion(df, combined_report + "\n\n" + evaluation_report)
+        # Summarize each section to reduce token count
+        summary_for_conclusion = ""
+        for step, detail in detailed_outputs.items():
+            summary_lines = detail.strip().splitlines()
+            short_summary = "\n".join(summary_lines[:3])  # First 3 lines as summary
+            summary_for_conclusion += f"{step} Summary:\n{short_summary}\n\n"
+
+        final_section = self.conclusion(df, summary_for_conclusion.strip())
         
-        # 6) Assemble the final Markdown report in the desired order.
-        full_report = (
-            "## Data Science Workflow Steps\n\n"
-            f"{overview}\n\n"
-            "## Detailed Steps and Explanations\n\n"
-            f"{combined_report}\n\n"
-            "## Step-by-Step Evaluations\n\n"
-            f"{evaluation_report}\n\n"
-            "## Conclusion\n\n"
-            f"{final_section}"
-        )
+        # Assemble the final Markdown report.
+        if len(selected_steps) > 1:  # Full report or multiple sections
+            overview_text = "\n".join(f"{i+1}. {step}" for i, step in enumerate(self.workflow_steps))
+            full_report = (
+                "## Data Science Workflow Steps\n\n" +
+                f"{overview_text}\n\n" +
+                "## Detailed Steps and Explanations\n\n" +
+                f"{combined_report}\n\n" +
+                "## Step-by-Step Evaluations\n\n" +
+                f"{evaluation_report}\n\n" +
+                "## Conclusion\n\n" +
+                f"{final_section}"
+            )
+        else:  # Single section
+            full_report = (
+                "## Detailed Step Explanation\n\n" +
+                f"{combined_report}\n\n" +
+                "## Step Evaluation\n\n" +
+                f"{evaluation_report}\n\n" +
+                "## Conclusion\n\n" +
+                f"{final_section}"
+            )
         
-        # 7) Write the final report to a Markdown file.
         with open(file_name, "w", encoding="utf-8") as f:
             f.write(full_report)
         
         print(f"\nMarkdown report saved as: {file_name}")
         return os.path.abspath(file_name)
-
-
     
-    def generate_output(self, df: pd.DataFrame, mode: str, selected_step: str = None, output_file: str = None) -> str:
+    def generate_output(self, df: pd.DataFrame, mode: str, selected_step: str = None, output_file: str = None, rating: int = None) -> str:
         """
         Unified method to generate a report based on UI inputs.
         
@@ -266,6 +332,7 @@ class ReportGenerator:
             mode: "report" for full report mode, or "step-by-step" for a single section.
             selected_step: For step-by-step mode, the exact workflow step to generate.
             output_file: Optional file name to save the report.
+            rating: Optional expertise rating for step-by-step mode (1=rookie, 5=expert) or overall rating for report mode.
         
         Returns:
             A string: Either the path to the generated report file or the generated report text.
@@ -273,19 +340,42 @@ class ReportGenerator:
         if mode == "report":
             if output_file is None:
                 output_file = "automated_report.md"
-            return self.generate_report_with_evaluation(df, output_file)
+            if rating is not None:
+                ratings_dict = {step: rating for step in self.workflow_steps}
+                # Set automated_mode=True to bypass the section selection prompt
+                return self.generate_report_with_evaluation(df, output_file, ratings=ratings_dict, automated_mode=True)
+            else:
+                return self.generate_report_with_evaluation(df, output_file, automated_mode=True)
         elif mode == "step-by-step":
             if selected_step is None or selected_step not in self.workflow_steps:
                 return "Invalid or missing selected step."
-            # Call the helper function for the selected step.
-            output = self.step_to_functions[selected_step][0](df)
-            # Optionally generate a conclusion for the step.
+            if rating is None:
+                while True:
+                    try:
+                        rating = int(input(f"Rating for '{selected_step}' (1=rookie, 5=expert): "))
+                        if rating < 1 or rating > 5:
+                            raise ValueError
+                        break
+                    except ValueError:
+                        print("Invalid input. Please enter an integer between 1 and 5.")
+            if rating <= 2:
+                detail_level = "extremely detailed, comprehensive, beginner-friendly, including reasoning and methods"
+            elif rating <= 4:
+                detail_level = "moderately detailed"
+            else:
+                detail_level = "concise"
+            step_prompt = (
+                f"Dataset columns: {df.columns.tolist()}.\n\n"
+                f"Provide a {detail_level} explanation for the '{selected_step}' step. "
+                "Include the specific tasks for this dataset, the reasoning behind each task, and clear instructions on how to perform them."
+            )
+            response = self.client.chat.completions.create(
+                messages=[self.SYSTEM_PROMPT, {"role": "user", "content": step_prompt}],
+                model='gpt-4o-mini'
+            )
+            output = response.choices[0].message.content.strip()
             conclusion_section = self.conclusion(df, output)
             combined = output + "\n\n" + conclusion_section
-            if output_file:
-                with open(output_file, "w", encoding="utf-8") as f:
-                    f.write(combined)
-                return os.path.abspath(output_file)
             return combined
         else:
             return "Invalid mode selected. Choose either 'report' or 'step-by-step'."
