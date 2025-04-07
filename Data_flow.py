@@ -12,7 +12,7 @@ from prompt import ReportGenerator
 rg = ReportGenerator()
 
 # ------------------ TYPEWRITER EFFECT FUNCTION ------------------
-def typewriter_display(text, speed=0.001):  # faster speed (approx 30 sec for long text)
+def typewriter_display(text, speed=0.001):
     placeholder = st.empty()
     display_text = ""
     for char in text:
@@ -22,9 +22,6 @@ def typewriter_display(text, speed=0.001):  # faster speed (approx 30 sec for lo
 
 # ------------------ FUNCTION: Convert Markdown to PDF using WeasyPrint ------------------
 def convert_md_to_pdf(md_text: str) -> bytes:
-    """
-    Convert a markdown string to PDF bytes using WeasyPrint.
-    """
     html_text = markdown.markdown(md_text)
     html_content = f"""
     <html>
@@ -62,18 +59,12 @@ st.markdown("""
             text-align: center;
             margin-bottom: 20px;
         }
-        /* 
-         * Cards Grid: simple 2-column layout.
-         */
         .option-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
             margin-bottom: 20px;
         }
-        /* 
-         * Left-align text inside the clickable cards.
-         */
         .option-grid .stButton > button {
             text-align: left !important;
         }
@@ -179,21 +170,30 @@ if choice == "📄 Report":
     with tab_input:
         df = handle_csv_upload()
         if df is not None:
+            st.markdown("## Please provide your overall expertise rating for this report (1 = rookie, 5 = expert):")
+            overall_rating = st.number_input("Overall Expertise", min_value=1, max_value=5, value=3, key="overall_expertise_rating")
             if st.button("Generate My Report", key="generate_report"):
                 if st.session_state["df"] is None:
                     st.error("Please upload a dataset first.")
                 else:
-                    with st.spinner("Report is being generated, it might take a while, please wait!"):
-                        report_path = rg.generate_output(st.session_state["df"], mode="report")
+                    with st.spinner("Report is being generated, please wait..."):
+                        overall_rating = st.number_input("Overall Expertise", min_value=1, max_value=5, value=3, key="overall_rating")
+                        report_path = rg.generate_output(
+                            st.session_state["df"],
+                            mode="report",
+                            output_file="automated_report.md",
+                            rating=overall_rating
+                        )
                         time.sleep(1)
                     try:
                         with open(report_path, "r", encoding="utf-8") as f:
                             report_text = f.read()
                         st.session_state["report_text"] = report_text
-                        st.session_state["report_displayed"] = False  # Reset flag for fresh typing
-                        st.info("Report generation complete. Please move to the Report tab to view the report.")
+                        st.session_state["report_displayed"] = False
+                        st.info("Report generation complete. Please switch to the Report tab to view the report.")
                     except Exception as e:
                         st.error(f"Error reading report file: {e}")
+
     with tab_report:
         st.markdown("<div id='report'></div>", unsafe_allow_html=True)
         if st.session_state["report_text"]:
@@ -233,22 +233,28 @@ else:
                 else:
                     st.error("Error: File upload failed.")
     
-        st.markdown("<h2 class='subheader'>🛠 Choose Your Section</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 class='subheader'>🛠 Choose Your Section and Rate Your Expertise</h2>", unsafe_allow_html=True)
         render_clickable_cards()
         if st.session_state["selected_card"]:
             st.write(f"**Selected Section:** {st.session_state['selected_card']}")
+            step_rating = st.number_input(f"Rating for {st.session_state['selected_card']} (1 = rookie, 5 = expert)", min_value=1, max_value=5, value=3, key=f"rating_{st.session_state['selected_card']}")
         else:
             st.write("*No section selected yet.*")
     
         if st.button("Proceed with Selection", key="proceed"):
             if st.session_state["selected_card"] and st.session_state["dataset_uploaded"]:
-                with st.spinner("Step is being generated, please wait..."):
-                    step_output = rg.generate_output(st.session_state["df"], mode="step-by-step", selected_step=st.session_state["selected_card"])
+                with st.spinner("Generating step... Please wait..."):
+                    step_output = rg.generate_output(
+                        st.session_state["df"],
+                        mode="step-by-step",
+                        selected_step=st.session_state["selected_card"],
+                        rating=step_rating
+                    )
                     time.sleep(1)
                 st.session_state["step_report"] += "\n\n" + step_output
                 st.session_state["selected_card"] = None
                 st.session_state["step_report_displayed"] = False
-                st.info("Step generation complete. Please move to the Workflow tab to view the update.")
+                st.info("Step generation complete. Please switch to the Workflow tab to view the update.")
             elif st.session_state["selected_card"] and not st.session_state["dataset_uploaded"]:
                 st.warning("Please upload a dataset!")
             elif not st.session_state["selected_card"] and st.session_state["dataset_uploaded"]:
