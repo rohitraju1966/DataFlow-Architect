@@ -257,7 +257,7 @@ class ReportGenerator:
             step_prompt = (
                 f"Dataset columns: {df.columns.tolist()}.\n"
                 f"Tasks previously covered: {completed_tasks if completed_tasks else 'None'}.\n\n"
-                f"Provide a {detail_level} explanation specifically for the '{step}' step, clearly detailing:\n"
+                f"Please provide an explanation with the following detail level: {detail_level} specifically for the '{step}' step, clearly detailing:\n"
                 "- What needs to be done at this step (tailored to this dataset).\n"
                 "- The reasoning behind each task.\n"
                 "- Clear, explicit instructions on how to perform these tasks.\n"
@@ -323,7 +323,7 @@ class ReportGenerator:
         print(f"\nMarkdown report saved as: {file_name}")
         return os.path.abspath(file_name)
     
-    def generate_output(self, df: pd.DataFrame, mode: str, selected_step: str = None, output_file: str = None, rating: int = None) -> str:
+    def generate_output(self, df: pd.DataFrame, mode: str, selected_step: str = None, output_file: str = None, rating: int = None, feedback: str = '') -> str:
         """
         Unified method to generate a report based on UI inputs.
         
@@ -333,6 +333,7 @@ class ReportGenerator:
             selected_step: For step-by-step mode, the exact workflow step to generate.
             output_file: Optional file name to save the report.
             rating: Optional expertise rating for step-by-step mode (1=rookie, 5=expert) or overall rating for report mode.
+            feedback: Human feedback from previous steps to be incorporated into the prompt.
         
         Returns:
             A string: Either the path to the generated report file or the generated report text.
@@ -364,13 +365,34 @@ class ReportGenerator:
                 detail_level = "moderately detailed"
             else:
                 detail_level = "concise"
-            step_prompt = (
-                f"Dataset columns: {df.columns.tolist()}.\n\n"
-                f"Provide a {detail_level} explanation for the '{selected_step}' step. "
-                "Include the specific tasks for this dataset, the reasoning behind each task, and clear instructions on how to perform them."
-            )
+            
+            # Specialized prompts for step-by-step mode.
+            specialized_prompts = {
+                "Data Cleaning & Preparation": "# **Data Preprocessing & Cleaning**\n1. Show the first five rows of the dataset in a table.\n2. Summarize missing values and duplicates, with specifics.\n3. Summarize unique values per column.\n4. Explain any cleaning steps that might be needed.",
+                "Exploratory Data Analysis (EDA)": "# **Exploratory Data Analysis**\nSuggest appropriate EDA techniques (visualizations, correlation checks, outlier detection) tailored for this dataset.",
+                "Machine Learning Algorithm Selection": "# **Machine Learning Suggestions**\nDiscuss supervised and unsupervised methods relevant to this dataset and explain their suitability.",
+                "Model Optimization & Feature Engineering": "# **Feature Engineering**\nDiscuss feature creation, transformation, and selection approaches, including any relevant optimizations.",
+                "Deployment & Real-World Considerations": "# **Model Deployment & Data Drift**\nPropose strategies for deploying models and handling data drift, addressing practical considerations."
+            }
+            
+            base_goal = specialized_prompts[selected_step]
+            if feedback:
+                full_goal = (
+                    f"Context: In the previous steps, if the  response was unsatisfactory, the user was asked to answer a couple of questions. "
+                    f"Below is the complete feedback provided by the user for each step encountered by the user, where each question (Q) is followed by the corresponding answer (Answer):\n {feedback}.\n"
+                    f"Based on this information and given that the report should be generated with the following detail level: {detail_level} "
+                    f"(i.e., determining how detailed or concise the explanation should be), please provide an explanation for the '{selected_step}' step. "
+                    #f"Use the following guidance as a reference, and feel free to add, modify, or omit details as necessary: {base_goal}"
+                )
+            else:
+                full_goal = (
+                    f"Based on the required detail level: {detail_level} "
+                    f"(i.e., determining how detailed or concise the explanation should be), please provide an explanation for the '{selected_step}' step. "
+                    #f"Use the following guidance as a reference, and feel free to add, modify, or omit details as necessary: {base_goal}"
+                )
+            user_prompt = self.generate_user_prompt_with_dataset(df, full_goal)
             response = self.client.chat.completions.create(
-                messages=[self.SYSTEM_PROMPT, {"role": "user", "content": step_prompt}],
+                messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
                 model='gpt-4o-mini'
             )
             output = response.choices[0].message.content.strip()
@@ -379,6 +401,7 @@ class ReportGenerator:
             return combined
         else:
             return "Invalid mode selected. Choose either 'report' or 'step-by-step'."
+
     
     def run(self):
         """

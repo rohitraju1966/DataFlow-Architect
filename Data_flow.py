@@ -97,6 +97,8 @@ if "report_displayed" not in st.session_state:
     st.session_state["report_displayed"] = False
 if "step_report_displayed" not in st.session_state:
     st.session_state["step_report_displayed"] = False
+if "latest_step" not in st.session_state:
+    st.session_state["latest_step"] = None  # Stores the name of the most recent generated step
 
 # ------------------ CSV UPLOAD (REPORT MODE) ------------------
 def handle_csv_upload():
@@ -177,12 +179,11 @@ if choice == "📄 Report":
                     st.error("Please upload a dataset first.")
                 else:
                     with st.spinner("Report is being generated, please wait..."):
-                        overall_rating = st.number_input("Overall Expertise", min_value=1, max_value=5, value=3, key="overall_rating")
                         report_path = rg.generate_output(
                             st.session_state["df"],
                             mode="report",
                             output_file="automated_report.md",
-                            rating=overall_rating
+                            rating=overall_rating  
                         )
                         time.sleep(1)
                     try:
@@ -237,30 +238,40 @@ else:
         render_clickable_cards()
         if st.session_state["selected_card"]:
             st.write(f"**Selected Section:** {st.session_state['selected_card']}")
-            step_rating = st.number_input(f"Rating for {st.session_state['selected_card']} (1 = rookie, 5 = expert)", min_value=1, max_value=5, value=3, key=f"rating_{st.session_state['selected_card']}")
+            step_rating = st.number_input(f"Rating for {st.session_state['selected_card']} (1 = rookie, 5 = expert)",
+                                          min_value=1, max_value=5, value=3, key=f"rating_{st.session_state['selected_card']}")
         else:
             st.write("*No section selected yet.*")
     
         if st.button("Proceed with Selection", key="proceed"):
             if st.session_state["selected_card"] and st.session_state["dataset_uploaded"]:
+                current_step = st.session_state["selected_card"]  # Save the selected step name
                 with st.spinner("Generating step... Please wait..."):
+                    # Pass combined feedback from previous steps if available.
+                    feedback_to_pass = st.session_state.get("combined_feedback", "")
                     step_output = rg.generate_output(
                         st.session_state["df"],
                         mode="step-by-step",
-                        selected_step=st.session_state["selected_card"],
-                        rating=step_rating
+                        selected_step=current_step,
+                        rating=step_rating,
+                        feedback=feedback_to_pass
                     )
                     time.sleep(1)
+                # Append the generated step output.
                 st.session_state["step_report"] += "\n\n" + step_output
-                st.session_state["selected_card"] = None
                 st.session_state["step_report_displayed"] = False
-                st.info("Step generation complete. Please switch to the Workflow tab to view the update.")
+                # Store the latest step that needs feedback.
+                st.session_state["latest_step"] = current_step
+                st.info("Step generation complete. Please switch to the Workflow tab to view the update and provide feedback.")
+                # Reset the selected card after processing.
+                st.session_state["selected_card"] = None
             elif st.session_state["selected_card"] and not st.session_state["dataset_uploaded"]:
                 st.warning("Please upload a dataset!")
             elif not st.session_state["selected_card"] and st.session_state["dataset_uploaded"]:
                 st.warning("Please select a section!")
             else:
                 st.warning("Please upload a dataset and select a section to start!")
+                
     with tab_workflow:
         st.markdown("<div id='workflow'></div>", unsafe_allow_html=True)
         if st.session_state["step_report"]:
@@ -275,4 +286,46 @@ else:
                 st.download_button("Download Step-by-Step Report as PDF", pdf_bytes, file_name="step_report.pdf", mime="application/pdf")
         else:
             st.markdown("### No steps have been added yet.")
+            
+        # ------------------ FEEDBACK SECTION in WORKFLOW TAB ------------------
+        if st.session_state.get("latest_step") is not None:
+            # If feedback has not yet been submitted for the latest step
+            if "human_feedback" not in st.session_state or st.session_state["latest_step"] not in st.session_state["human_feedback"]:
+                st.markdown("#### How did you like the response for the most recent step?")
+                thumbs = st.radio("Please select:", options=["👍 Thumbs Up", "👎 Thumbs Down"], key="feedback_thumb_workflow")
+                if thumbs == "👎 Thumbs Down":
+                    q1 = st.selectbox(
+                        "Q1: To what extent does the response clearly communicate its main idea, maintain full relevance to the topic, and support its claims with sufficient evidence or examples?",
+                        options=["Very appropriate", "Mostly appropriate", "Somewhat inappropriate", "Very inappropriate"],
+                        key="feedback_q1_workflow"
+                    )
+                    q2 = st.selectbox(
+                        "Q2: How well is the response organized, with a clear structure, proper conclusion, and appropriate language for its audience?",
+                        options=["Very appropriate", "Mostly appropriate", "Somewhat inappropriate", "Very inappropriate"],
+                        key="feedback_q2_workflow"
+                    )
+                    if st.button("Submit Feedback", key="submit_feedback_workflow"):
+                        # Save the full explanation including questions and answers.
+                        feedback_response = (
+                            "Q1: To what extent does the response clearly communicate its main idea, maintain full relevance to the topic, and support its claims with sufficient evidence or examples? - Answer: " + q1 + "; " +
+                            "Q2: How well is the response organized, with a clear structure, proper conclusion, and appropriate language for its audience? - Answer: " + q2
+                        )
+                        if "human_feedback" not in st.session_state:
+                            st.session_state["human_feedback"] = {}
+                        st.session_state["human_feedback"][st.session_state["latest_step"]] = feedback_response
+                        st.success("Feedback submitted!")
+                        # Re-combine all feedback responses.
+                        combined = "\n".join(st.session_state["human_feedback"].values())
+                        st.session_state["combined_feedback"] = combined
+                        # Clear latest_step after feedback is submitted.
+                        st.session_state["latest_step"] = None
+                else:
+                    if st.button("Confirm 👍", key="confirm_feedback_workflow"):
+                        if "human_feedback" not in st.session_state:
+                            st.session_state["human_feedback"] = {}
+                        st.session_state["human_feedback"][st.session_state["latest_step"]] = "Response approved with thumbs up."
+                        st.success("Feedback submitted!")
+                        combined = "\n".join(st.session_state["human_feedback"].values())
+                        st.session_state["combined_feedback"] = combined
+                        st.session_state["latest_step"] = None
         st.markdown("#### New steps will be appended below. Scroll down to view the latest update.")
