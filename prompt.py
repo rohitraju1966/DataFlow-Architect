@@ -4,10 +4,34 @@ from openai import OpenAI
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from mistralai import Mistral
+import time, re
 
 # Load environment variables from the .env file
 load_dotenv(dotenv_path=".env")  # Ensure .env is in the current working directory
 
+def simple_timer(label: str):
+    """Return current time so we can measure how long something took."""
+    print(f"[START] {label}")
+    return time.perf_counter()
+
+def tidy_headings(md: str) -> str:
+    """
+    1. Removes duplicate headings.
+    2. Adds numbers to second‑level headings (## 1., ## 2., …).
+    All in < 10 lines so it’s easy to read :-)
+    """
+    seen, result, n = set(), [], 0
+    for line in md.splitlines():
+        if line.startswith("## "):          # we only care about '## '
+            text = line[3:].strip()
+            if text.lower() in seen:        # skip duplicates
+                continue
+            seen.add(text.lower())
+            n += 1
+            line = f"## {n}. {text.lstrip('0123456789. ')}"
+        result.append(line)
+    return "\n".join(result)
+    
 class ReportGenerator:
     def __init__(self):
         # Retrieve API keys from environment variables
@@ -32,7 +56,8 @@ class ReportGenerator:
                 "1. Use headings: # for main sections and ## or ### for subsections.\n"
                 "2. Keep each section concise and to the point.\n"
                 "3. Avoid repeating dataset overviews or the word 'report' in each section.\n"
-                "4. Do not add extra lines before or after headings."
+                "4. Do not add extra lines before or after headings.\n"
+                "5. Do NOT repeat a heading already used."
             )
         }
         
@@ -111,11 +136,13 @@ class ReportGenerator:
             f"3. Summarize unique values per column: {unique_values.to_string()}.\n"
             "4. Explain any cleaning steps that might be needed."
         )
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def eda(self, df: pd.DataFrame) -> str:
@@ -123,11 +150,13 @@ class ReportGenerator:
         Generates the Exploratory Data Analysis section.
         """
         user_goal = "# **Exploratory Data Analysis**\nSuggest EDA techniques (visualizations, correlation checks, outlier detection)."
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def ml_suggestions(self, df: pd.DataFrame) -> str:
@@ -135,11 +164,13 @@ class ReportGenerator:
         Generates Machine Learning Algorithm Selection suggestions.
         """
         user_goal = "# **Machine Learning Suggestions**\nDiscuss supervised and unsupervised methods relevant to this dataset."
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def feature_egr(self, df: pd.DataFrame) -> str:
@@ -147,11 +178,13 @@ class ReportGenerator:
         Generates Feature Engineering suggestions.
         """
         user_goal = "# **Feature Engineering**\nDiscuss feature creation, transformation, and selection approaches."
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def model_deployment(self, df: pd.DataFrame) -> str:
@@ -159,11 +192,13 @@ class ReportGenerator:
         Generates Model Deployment & Data Drift suggestions.
         """
         user_goal = "# **Model Deployment & Data Drift**\nPropose strategies for deploying models and handling data drift."
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def conclusion(self, df: pd.DataFrame, combined: str) -> str:
@@ -171,11 +206,13 @@ class ReportGenerator:
         Generates the Conclusion section.
         """
         user_goal = "# **Conclusion**\nProvide a succinct concluding section summarizing the overall insights."
+        t0 = simple_timer("EDA section")
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal + f"\nSections combined:\n{combined}")
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
+        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
 
     def generate_report_with_evaluation(self, df: pd.DataFrame, file_name: str = "automated_report.md", ratings: dict = None, automated_mode: bool = False) -> str:
@@ -279,7 +316,7 @@ class ReportGenerator:
             selected_functions.extend(self.step_to_functions[step])
         with ThreadPoolExecutor() as executor:
             results = list(executor.map(lambda func: func(df), selected_functions))
-        combined_report = "\n\n".join(results)
+        combined_report = tidy_headings("\n\n".join(results)) 
         
         evaluation_report = "\n\n".join(
             [f"**{step} Evaluation:**\n{detail}" for step, detail in detailed_outputs.items()]
@@ -397,7 +434,7 @@ class ReportGenerator:
             )
             output = response.choices[0].message.content.strip()
             conclusion_section = self.conclusion(df, output)
-            combined = output + "\n\n" + conclusion_section
+            combined = tidy_headings(output + "\n\n" + conclusion_section)
             return combined
         else:
             return "Invalid mode selected. Choose either 'report' or 'step-by-step'."
