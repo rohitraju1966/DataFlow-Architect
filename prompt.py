@@ -4,15 +4,17 @@ from openai import OpenAI
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from mistralai import Mistral
-import time, re
+import time, inspect
 
 # Load environment variables from the .env file
 load_dotenv(dotenv_path=".env")  # Ensure .env is in the current working directory
 
-def simple_timer(label: str):
+def simple_timer(label: str = None):
     """Return current time so we can measure how long something took."""
+    if label is None:
+        label = inspect.stack()[1].function 
     print(f"[START] {label}")
-    return time.perf_counter()
+    return label, time.perf_counter()
 
 def tidy_headings(md: str) -> str:
     """
@@ -22,9 +24,9 @@ def tidy_headings(md: str) -> str:
     """
     seen, result, n = set(), [], 0
     for line in md.splitlines():
-        if line.startswith("## "):          # we only care about '## '
+        if line.startswith("## "): # we only care about '## '
             text = line[3:].strip()
-            if text.lower() in seen:        # skip duplicates
+            if text.lower() in seen: # skip duplicates
                 continue
             seen.add(text.lower())
             n += 1
@@ -136,13 +138,13 @@ class ReportGenerator:
             f"3. Summarize unique values per column: {unique_values.to_string()}.\n"
             "4. Explain any cleaning steps that might be needed."
         )
-        t0 = simple_timer("EDA section")
+        label , t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def eda(self, df: pd.DataFrame) -> str:
@@ -150,13 +152,13 @@ class ReportGenerator:
         Generates the Exploratory Data Analysis section.
         """
         user_goal = "# **Exploratory Data Analysis**\nSuggest EDA techniques (visualizations, correlation checks, outlier detection)."
-        t0 = simple_timer("EDA section")
+        label, t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def ml_suggestions(self, df: pd.DataFrame) -> str:
@@ -164,13 +166,13 @@ class ReportGenerator:
         Generates Machine Learning Algorithm Selection suggestions.
         """
         user_goal = "# **Machine Learning Suggestions**\nDiscuss supervised and unsupervised methods relevant to this dataset."
-        t0 = simple_timer("EDA section")
+        label, t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def feature_egr(self, df: pd.DataFrame) -> str:
@@ -178,13 +180,13 @@ class ReportGenerator:
         Generates Feature Engineering suggestions.
         """
         user_goal = "# **Feature Engineering**\nDiscuss feature creation, transformation, and selection approaches."
-        t0 = simple_timer("EDA section")
+        label, t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def model_deployment(self, df: pd.DataFrame) -> str:
@@ -192,13 +194,13 @@ class ReportGenerator:
         Generates Model Deployment & Data Drift suggestions.
         """
         user_goal = "# **Model Deployment & Data Drift**\nPropose strategies for deploying models and handling data drift."
-        t0 = simple_timer("EDA section")
+        label, t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal)
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
     
     def conclusion(self, df: pd.DataFrame, combined: str) -> str:
@@ -206,13 +208,13 @@ class ReportGenerator:
         Generates the Conclusion section.
         """
         user_goal = "# **Conclusion**\nProvide a succinct concluding section summarizing the overall insights."
-        t0 = simple_timer("EDA section")
+        label, t0 = simple_timer()
         user_prompt = self.generate_user_prompt_with_dataset(df, user_goal + f"\nSections combined:\n{combined}")
         response = self.client.chat.completions.create(
             messages=[self.SYSTEM_PROMPT, {"role": "user", "content": user_prompt}],
             model='gpt-4o-mini'
         )
-        print(f"[END]  EDA section: {time.perf_counter()-t0:.2f}s")
+        print(f"[END]  {label}: {time.perf_counter()-t0:.2f}s")
         return response.choices[0].message.content
 
     def generate_report_with_evaluation(self, df: pd.DataFrame, file_name: str = "automated_report.md", ratings: dict = None, automated_mode: bool = False) -> str:
